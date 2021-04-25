@@ -37,10 +37,7 @@ var ball;
 var landings;
 var ballpos = [];
 var csvData;
-var traveltimeglobal;
-var landingData = [];
 var Tooltip;
-var coordTooltip;
 
 var pieceArray;
 var boardArray;
@@ -217,10 +214,15 @@ function drawPlayers(){
 
     Turn: white is false, black is true
     castling possible: no is false, yes is true
-    en pessant possible: no is false, yes is true
+    en passant possible: no is 0, yes is represented by a 1-8 based on the pawn's column
     king is in check: no is false, yes is true
     */
-    gameState = [false, false, false, false];
+    gameState = {
+        blackToMove: false,
+        castlingPossible: false,
+        enPassant: 0,
+        kingInCheck: false
+    }
 }
 
 /*
@@ -294,7 +296,7 @@ function initializeCoordinateTooltip(){
 
 let movablePieceSelected = false
 
-function dragstarted(d,i) {
+function dragstarted(d) {
     // This saves which piece is currently selected so that we can update its position when it's dropped
     selectedPiece = d.sourceEvent.path[0].id
 
@@ -317,12 +319,12 @@ function dragged(event) {
 
 }
 
-function dragended(d,i) {
+function dragended(d) {
     if (movablePieceSelected){
         var xy = snapSquare(d.x,d.y)
 
         // First find the index of the selected piece in the 32-long list
-        let isSelectedPiece = (element) => element == selectedPiece;
+        let isSelectedPiece = (element) => element === selectedPiece;
         var pieceIndex = pieceList.findIndex(isSelectedPiece)
 
         // Then find the new position that we want to move the piece to
@@ -339,7 +341,7 @@ function dragended(d,i) {
                 d3.selectAll("#" + removedPiece)
                     .remove()
             }
-            gameState[0] = !gameState[0]
+            gameState.blackToMove = !gameState.blackToMove
         }
         // Otherwise, replace the piece and try again
         else {
@@ -362,7 +364,7 @@ function updatePosition(xy_tuple) {
     var removedPiece = " "
 
     // First find the index of the piece in the 32-long list
-    let isSelectedPiece = (element) => element == selectedPiece;
+    let isSelectedPiece = (element) => element === selectedPiece;
     var pieceIndex = pieceList.findIndex(isSelectedPiece)
 
     // Then find the new position that we want to move the piece to
@@ -374,22 +376,106 @@ function updatePosition(xy_tuple) {
     // If the new position is different from the previous positon...
     if (newPosition !== previousPosition) {
         // First update the board array
-        // First clear the old location
+        // First update the new location with the old location, then clear the old location
         var previousPositionRow = 8 - previousPosition % 10
         var previousPositionColumn = Math.trunc(previousPosition/10) - 1
-        boardArray[previousPositionRow][previousPositionColumn] = " "
-        // Then update the new location with the piece
+
         var newPositionRow = 8 - newPosition % 10
         var newPositionColumn = Math.trunc(newPosition/10) - 1
-        boardArray[newPositionRow][newPositionColumn] = shortPieceList[pieceIndex]
+        boardArray[newPositionRow][newPositionColumn] = boardArray[previousPositionRow][previousPositionColumn]
+
+        boardArray[previousPositionRow][previousPositionColumn] = " "
 
         // Next, delete any existing pieces at that location in the piece array
-        let isNewPosition = (element) => element == newPosition;
+        let isNewPosition = (element) => element === newPosition;
         let existing_index = pieceArray.findIndex(isNewPosition)
         if (existing_index !== -1){
             pieceArray[existing_index] = 99
             removedPiece = pieceList[existing_index]
         }
+
+        // TODO
+        /*
+        En Passant Sprite Removal
+        When a pawn is captured via en passant, the sprite of the captured pawn must be
+        specially removed
+         */
+        if (gameState.blackToMove) {
+            if (gameState.enPassant*10 + 3 == newPosition) {
+                let isNewPosition = (element) => element == newPosition + 1;
+                let existing_index = pieceArray.findIndex(isNewPosition)
+                pieceArray[existing_index] = 99
+                removedPiece = pieceList[existing_index]
+                boardArray[4][gameState.enPassant - 1] = " "
+            }
+        }
+        else {
+            if (gameState.enPassant*10 + 6 == newPosition) {
+                let isNewPosition = (element) => element == newPosition - 1;
+                let existing_index = pieceArray.findIndex(isNewPosition)
+                pieceArray[existing_index] = 99
+                removedPiece = pieceList[existing_index]
+                boardArray[3][gameState.enPassant - 1] = " "
+            }
+        }
+
+        // TODO
+        /*
+        Reset/unreset the en passant gamestate depending on the new move
+         */
+        gameState.enPassant = 0
+        // If we've selected a pawn
+        if (shortPieceList[pieceIndex].toLowerCase() == "p") {
+            console.log(newPosition)
+            console.log(previousPosition)
+            // If we've moved the piece two spaces forward
+            if ( Math.abs(newPosition - previousPosition) == 2) {
+                gameState.enPassant = newPositionColumn + 1
+            }
+        }
+
+
+        // Pawn Promotion
+        /*
+        Pseudocode
+
+        If the selected piece is a pawn AND the new position is on the back rank (8 mod 10):
+
+            Then allow the user to promote to queen, rook, bishop, or knight
+            Update the selected sprite on the board with the appropriate new sprite
+            Update the board array with the correct new piece value
+
+         */
+        if (shortPieceList[pieceIndex].toLowerCase() == "p" && [0,7].includes(newPositionRow)
+            && boardArray[newPositionRow][newPositionColumn].toLowerCase() == "p") {
+            let piece = ""
+            while (!["q","r","b","n"].includes(piece)) {
+                piece = prompt("Please enter promotion piece (q, r, b, n):", "q")
+            }
+
+            let filename = ""
+
+            if (!gameState.blackToMove) {
+                filename = "pieces/w" + piece + ".png"
+            }
+            else {
+                filename = "pieces/b" + piece + ".png"
+            }
+
+            players.selectAll("#" + selectedPiece)
+                .attr('xlink:href',filename)
+
+            if (pieceIndex >= 16) {
+                boardArray[newPositionRow][newPositionColumn] = piece
+            }
+            else {
+                boardArray[newPositionRow][newPositionColumn] = piece.toUpperCase()
+            }
+
+
+        }
+
+        console.log("Gamestate: ", gameState)
 
         // Finally update the piece array
         pieceArray[pieceIndex] = newPosition
@@ -408,32 +494,25 @@ function updateHTMLArrays() {
 // Checks if a move is legal or not
 function isValidMove(pieceIndex, newPosition) {
     let moveChecker1 = new moveChecker(pieceArray,boardArray,pieceIndex,gameState)
+    console.log("Calling eligible moves")
     console.log("Eligible Moves: ", moveChecker1.eligibleMoves())
-    if ([2,3,18,19].includes(pieceIndex)) {
-        if (moveChecker1.eligibleMoves().includes(newPosition)){
-            return true
-        }
-        return false
-    }
-    if ([6,7,22,23].includes(pieceIndex)) {
-        if (moveChecker1.eligibleMoves().includes(newPosition)){
-            return true
-        }
-        return false
-    }
-    if ([1,17].includes(pieceIndex)) {
-        if (moveChecker1.eligibleMoves().includes(newPosition)){
-            return true
-        }
-        return false
-    }
-    return true
+    console.log("Calling legal moves")
+    console.log("Legal Moves: ", moveChecker1.legalMoves())
+    console.log("Calling eligible moves 2")
+    console.log("Eligible Moves: ", moveChecker1.eligibleMoves())
+    console.log("Calling pseudolegal moves")
+    console.log("Pseudolegal Moves: ", moveChecker1.pseudoLegalMoves())
+
+    console.log("final call ------------")
+    return moveChecker1.legalMoves().includes(newPosition);
+
+
 }
 
 // Returns a list of all pieces that are eligible to move
 function movablePieces() {
     let possiblePieces = []
-    if (gameState[0]) {
+    if (gameState.blackToMove) {
         possiblePieces = ["black_king", "black_queen", "black_king_rook", "black_queen_rook",
             "black_king_knight", "black_queen_knight", "black_king_bishop", "black_queen_bishop",
             "black_k_pawn", "black_q_pawn", "black_kr_pawn", "black_qr_pawn",
